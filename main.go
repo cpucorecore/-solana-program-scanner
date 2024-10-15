@@ -41,19 +41,22 @@ func main() {
 	wg.Add(1)
 	go blockProcessor.run(ctx, &wg)
 
+	fc := NewFlowController(5, 5, time.Second, time.Second)
+	go fc.startLog(time.Second * 1)
 	bhm := block_height_manager.NewBlockHeightManager()
-	blockGetter := NewBlockGetter(conf.Solana.BlockGetterWorkerNumber, bhm)
+	blockGetter := NewBlockGetter(conf.Solana.BlockGetterWorkerNumber, bhm, fc)
 	startBlockHeight := blockGetter.getBlockHeightBySlot(conf.Solana.StartSlot)
 	bhm.Init(startBlockHeight - 1)
 
 	wg.Add(1)
 	go blockGetter.run(ctx, &wg, taskCh, blockCh)
 
-	taskDispatch := NewBlockTaskDispatch()
+	taskDispatch := NewBlockTaskDispatch(fc)
 	wg.Add(1)
-	go taskDispatch.keepDispatchTaskMock(&wg, conf.Solana.StartSlot, 10, taskCh)
+	go taskDispatch.keepDispatchingTask(&wg, conf.Solana.StartSlot, 20, taskCh)
 
 	Logger.Info("wait all goroutine done")
 	wg.Wait()
+	fc.stopLog()
 	Logger.Info("all goroutine done")
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,11 +14,15 @@ const (
 
 type BlockTaskDispatch struct {
 	cli rpc.RpcClient
+	fc  FlowController
 }
 
-func NewBlockTaskDispatch() *BlockTaskDispatch {
+func NewBlockTaskDispatch(fc FlowController) *BlockTaskDispatch {
 	cli := rpc.NewRpcClient(conf.Solana.RpcEndpoint)
-	return &BlockTaskDispatch{cli: cli}
+	return &BlockTaskDispatch{
+		cli: cli,
+		fc:  fc,
+	}
 }
 
 func (btd *BlockTaskDispatch) keepDispatchTaskMock(wg *sync.WaitGroup, startSlot uint64, count uint64, taskCh chan uint64) {
@@ -33,13 +38,44 @@ func (btd *BlockTaskDispatch) keepDispatchTaskMock(wg *sync.WaitGroup, startSlot
 	close(taskCh)
 }
 
-func (btd *BlockTaskDispatch) keepDispatchTask(wg *sync.WaitGroup, startSlot uint64, count uint64, taskCh chan uint64) {
+func (btd *BlockTaskDispatch) keepDispatchingTask(wg *sync.WaitGroup, startSlot uint64, count uint64, taskCh chan uint64) {
 	defer wg.Done()
 
-	config, err := btd.cli.GetSlotWithConfig(nil, rpc.GetSlotConfig{Commitment: Commitment})
-	if err != nil {
-		time.Sleep(conf.Solana.RpcReqInterval)
+	const QueryInterval = time.Second * 10
+	endCursor := uint64(0)
+	if count > 0 {
+		endCursor = startSlot + count
 	}
 
-	close(taskCh)
+	cursor := startSlot
+	taskCh <- cursor
+	cursor++
+
+	for {
+		resp, err := btd.cli.GetSlotWithConfig(nil, rpc.GetSlotConfig{Commitment: Commitment})
+		if err != nil {
+			Logger.Error(fmt.Sprintf("GetSlot err: %s", err.Error()))
+			btd.fc.onErr()
+		}
+
+		if resp.Error != nil {
+			Logger.Error(fmt.Sprintf("GetSlot JsonRpc err:%s", resp.Error.Error()))
+			btd.fc.onErr()
+		}
+
+		btd.fc.onDone(time.Now())
+
+		if resp.Result >= cursor {
+			end := resp.Result
+			for ; cursor <= end; cursor++ {
+				if cursor == endCursor {
+					close(taskCh)
+					return
+				}
+				taskCh <- cursor
+			}
+		}
+
+		time.Sleep(QueryInterval)
+	}
 }

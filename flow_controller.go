@@ -1,69 +1,159 @@
 package main
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
 
 type FlowController interface {
-	onOk()
+	onDone(time.Time)
 	onErr()
+	startLog(time.Duration)
+	stopLog()
 }
 
 type flowController struct {
-	okCnt int
-	okMu  sync.Mutex
+	targetTps      int
+	tpsCountWindow int
+	tpsWaitUnit    time.Duration
+	errWaitUnit    time.Duration
 
-	okTimes   []time.Time
-	okTimesMu sync.Mutex
+	stop bool
 
-	errCnt int
-	errMu  sync.Mutex
-
-	targetTps   int
-	errWaitUnit time.Duration
+	okCounter     mutexCounter
+	errCounter    mutexCounter
+	errCounterTmp mutexCounter
+	tpsCounter    TpsCounter
 }
 
-func NewFlowController(waitUnit time.Duration) FlowController {
+type tpsCounter struct {
+	countWindow int
+	timestamps  []time.Time
+	mu          sync.Mutex
+}
+
+type TpsCounter interface {
+	onDone(time.Time) int
+	String() string
+}
+
+var _ TpsCounter = &tpsCounter{}
+
+func NewTpsCounter(countWindow int) TpsCounter {
+	if countWindow < 10 {
+		countWindow = 10
+	}
+
+	return &tpsCounter{
+		countWindow: countWindow,
+	}
+}
+
+func (mtt *tpsCounter) onDone(timestamp time.Time) (tps int) {
+	mtt.mu.Lock()
+	defer mtt.mu.Unlock()
+
+	mtt.timestamps = append(mtt.timestamps, timestamp)
+	reqCnt := len(mtt.timestamps)
+	if reqCnt == mtt.countWindow {
+		tps = reqCnt / int(mtt.timestamps[reqCnt-1].Sub(mtt.timestamps[0])/time.Second)
+		mtt.timestamps = mtt.timestamps[1:]
+	}
+
+	return
+}
+
+func (mtt *tpsCounter) String() string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for _, timestamp := range mtt.timestamps {
+		sb.WriteString(timestamp.String())
+		sb.WriteString("\n")
+	}
+	sb.WriteString("]\n")
+
+	reqCnt := len(mtt.timestamps)
+	if reqCnt >= 2 {
+		sb.WriteString(fmt.Sprintf("tps:%v", reqCnt*1.0/int(mtt.timestamps[reqCnt-1].Sub(mtt.timestamps[0])/time.Second)))
+	}
+
+	return sb.String()
+}
+
+type mutexCounter struct {
+	cnt int
+	mu  sync.Mutex
+}
+
+func (mc *mutexCounter) get() (cnt int) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	cnt = mc.cnt
+	return
+}
+
+func (mc *mutexCounter) up() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	mc.cnt++
+}
+
+func (mc *mutexCounter) down() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	mc.cnt--
+}
+
+func (mc *mutexCounter) reset() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	mc.cnt = 0
+}
+
+func NewFlowController(targetTps int, tpsCountWindow int, tpsWaitUnit time.Duration, errWaitUnit time.Duration) FlowController {
 	return &flowController{
-		errCnt:      0,
-		okCnt:       0,
-		errWaitUnit: waitUnit,
+		targetTps:      targetTps,
+		tpsCountWindow: tpsCountWindow,
+		tpsWaitUnit:    tpsWaitUnit,
+		errWaitUnit:    errWaitUnit,
+		tpsCounter:     NewTpsCounter(tpsCountWindow),
 	}
 }
 
-func (fc *flowController) onOk() {
-	now := time.Now()
-	oneSecondAgo := now.Add(-time.Second)
-	tps := 0
-	fc.okTimesMu.Lock()
-	fc.okTimes = append(fc.okTimes, now)
-	for _, ot := range fc.okTimes {
-		if ot.Before(oneSecondAgo) {
-			tps++
-			fc.okTimes = append(fc.okTimes[:1], fc.okTimes[2:]...)
-		}
+func (fc *flowController) onDone(timestamp time.Time) {
+	fc.errCounterTmp.reset()
+	fc.okCounter.up()
+	tps := fc.tpsCounter.onDone(timestamp)
+	if tps > fc.targetTps {
+		time.Sleep(time.Millisecond * 100) // TODO calc the sleep time
 	}
-	fc.okTimesMu.Unlock()
-
-	fc.okMu.Lock()
-	fc.okCnt++
-	fc.okMu.Unlock()
-
-	fc.errMu.Lock()
-	fc.errCnt = 0
-	fc.errMu.Unlock()
 }
 
 func (fc *flowController) onErr() {
-	var errCnt int
+	fc.errCounterTmp.up()
+	fc.errCounter.up()
+	time.Sleep(fc.errWaitUnit * time.Duration(fc.errCounterTmp.get()))
+}
 
-	fc.errMu.Lock()
-	fc.errCnt++
-	errCnt = fc.errCnt
-	fc.errMu.Unlock()
+func (fc *flowController) startLog(logInterval time.Duration) {
+	fc.stop = false
+	for !fc.stop {
+		time.Sleep(logInterval)
+		Logger.Info(fmt.Sprintf(`flow controller summary:
+(targetTps, tpsCountWindow, tpsWaitUnit, errWaitUnit) = (%d, %d, %s, %s)
+okCounter:%d
+errCounter:%d
+errCounterTmp:%d
+tpsCounter:
+%s
+`, fc.targetTps, fc.tpsCountWindow, fc.tpsWaitUnit, fc.errWaitUnit, fc.okCounter.get(), fc.errCounter.get(), fc.errCounterTmp.get(), fc.tpsCounter))
+	}
+}
 
-	time.Sleep(fc.errWaitUnit * time.Duration(errCnt))
+func (fc *flowController) stopLog() {
+	fc.stop = true
 }
 
 var _ FlowController = &flowController{}
