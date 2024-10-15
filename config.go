@@ -14,6 +14,7 @@ const (
 type SolanaConf struct {
 	RpcEndpoint             string
 	RpcReqInterval          time.Duration
+	RpcReqErrDelay          string
 	BlockGetterWorkerNumber int
 	StartSlot               uint64
 }

@@ -208,7 +208,6 @@ func (bpp *BlockProcessorParser) process(block *rpc.GetBlock) error {
 				bpp.ixIndexCh <- bson.M{"ins": raydium_amm.InstructionIDToName(ix.TypeID.Uint8()), "signature": tx.Transaction.Signatures}
 
 				switch ix.TypeID.Uint8() {
-
 				case raydium_amm.Instruction_SwapBaseIn:
 					ixNude, ok := ix.Impl.(*raydium_amm.SwapBaseIn)
 					if ok {
