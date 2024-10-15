@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ func (btd *BlockTaskDispatch) keepDispatchTaskMock(wg *sync.WaitGroup, startSlot
 	close(taskCh)
 }
 
-func (btd *BlockTaskDispatch) keepDispatchingTask(wg *sync.WaitGroup, startSlot uint64, count uint64, taskCh chan uint64) {
+func (btd *BlockTaskDispatch) keepDispatchingTask(ctx context.Context, wg *sync.WaitGroup, startSlot uint64, count uint64, taskCh chan uint64) {
 	defer wg.Done()
 
 	const QueryInterval = time.Second * 10
@@ -52,7 +53,7 @@ func (btd *BlockTaskDispatch) keepDispatchingTask(wg *sync.WaitGroup, startSlot 
 	cursor++
 
 	for {
-		resp, err := btd.cli.GetSlotWithConfig(nil, rpc.GetSlotConfig{Commitment: Commitment})
+		resp, err := btd.cli.GetSlotWithConfig(ctx, rpc.GetSlotConfig{Commitment: Commitment})
 		if err != nil {
 			Logger.Error(fmt.Sprintf("GetSlot err: %s", err.Error()))
 			btd.fc.onErr()
