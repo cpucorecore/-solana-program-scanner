@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -180,8 +179,8 @@ func (bpp *BlockProcessorParser) process(block *rpc.GetBlock) error {
 					Logger.Error(fmt.Sprintf("json unmarshal err:%s", err.Error()))
 					// TODO exit
 				}
-				Logger.Info(string(txJson))
-				Logger.Info(string(ixJson))
+				//Logger.Info(string(txJson))
+				//Logger.Info(string(ixJson))
 				bpp.txRawChan <- string(txJson)
 				bpp.ixRawChan <- string(ixJson)
 
@@ -198,7 +197,7 @@ func (bpp *BlockProcessorParser) process(block *rpc.GetBlock) error {
 				if err != nil {
 					Logger.Error(fmt.Sprintf("decode err:%s", err.Error()))
 				}
-				Logger.Info(fmt.Sprintf("%s", hex.EncodeToString(ixData)))
+				//Logger.Info(fmt.Sprintf("%s", hex.EncodeToString(ixData)))
 
 				ix, err := raydium_amm.DecodeInstruction(accounts, ixData)
 				if err != nil {

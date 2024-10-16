@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +70,7 @@ func (mtt *tpsCounter) String() string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for _, timestamp := range mtt.timestamps {
-		sb.WriteString(timestamp.String())
+		sb.WriteString(strconv.FormatInt(timestamp.UnixMilli(), 10))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("]\n")
@@ -142,13 +143,12 @@ func (fc *flowController) startLog(logInterval time.Duration) {
 	for !fc.stop {
 		time.Sleep(logInterval)
 		Logger.Info(fmt.Sprintf(`flow controller summary:
-(targetTps, tpsCountWindow, tpsWaitUnit, errWaitUnit) = (%d, %d, %s, %s)
 okCounter:%d
 errCounter:%d
 errCounterTmp:%d
 tpsCounter:
 %s
-`, fc.targetTps, fc.tpsCountWindow, fc.tpsWaitUnit, fc.errWaitUnit, fc.okCounter.get(), fc.errCounter.get(), fc.errCounterTmp.get(), fc.tpsCounter))
+`, fc.okCounter.get(), fc.errCounter.get(), fc.errCounterTmp.get(), fc.tpsCounter))
 	}
 }
 
